@@ -1,0 +1,45 @@
+name: discord-monitor
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch Discord messages
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+        run: |
+          python3 << 'PYEOF'
+          import os, json, urllib.request
+          token = os.environ['DISCORD_TOKEN']
+          channel = os.environ['CHANNEL_ID']
+          req = urllib.request.Request(
+              f'https://discord.com/api/v10/channels/{channel}/messages?limit=10',
+              headers={'Authorization': token, 'User-Agent': 'Mozilla/5.0'}
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              msgs = json.load(r)
+          out = [{
+              'id': m['id'],
+              'author': m['author']['username'],
+              'content': m['content'],
+              'timestamp': m['timestamp']
+          } for m in msgs if m.get('content')]
+          with open('latest.json', 'w', encoding='utf-8') as f:
+              json.dump(out, f, ensure_ascii=False, indent=2)
+          PYEOF
+      - name: Commit
+        run: |
+          git config user.name "monitor-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add latest.json
+          git commit -m "update $(date -u +%FT%TZ)" || echo "no change"
+          git push
